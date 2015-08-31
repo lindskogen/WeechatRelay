@@ -14,9 +14,16 @@ if success {
     let wc = Weechat(socket: client)
     wc.send_init()
     
-    wc.send_hdata("buffer:gui_buffers(*)/lines/first_line(*)/data")
-    // wc.send_test()
+    let weechatlines = wc.getLines()
+    
+    for line in weechatlines {
+        print("\(line.date): \(line.message)")
+    }
+    
+    // wc.getBuffers()
     // print(response)
     
+} else {
+    print("could not connect")
 }
 
