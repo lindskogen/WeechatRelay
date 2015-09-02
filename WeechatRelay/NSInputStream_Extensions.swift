@@ -57,11 +57,3 @@ extension NSInputStream {
     }
 
 }
-
-extension NSOutputStream {
-    func writeString(string: String) {
-        let messageData = string.dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)!
-        self.write(UnsafePointer(messageData.bytes), maxLength: messageData.length)
-    }
-}
-
