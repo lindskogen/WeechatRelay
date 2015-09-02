@@ -11,8 +11,9 @@ import Cocoa
 do {
     let wc = try Weechat(host: "127.0.0.1", port: 9000)
     
-    wc.getLines()
-    // wc.getBuffers()
+    // wc.getLines()
+    wc.getBuffers()
+    // wc.getHotlist()
     
     NSRunLoop.mainRunLoop().run()
 } catch {

@@ -41,8 +41,8 @@ extension NSInputStream {
         return UnicodeScalar(readUInt8())
     }
     
-    func readChar() -> Character {
-        return Character(UnicodeScalar(readUInt8()))
+    func readChar() -> Bool {
+        return readUInt8() == 1
     }
     
     func readString(length: Int) -> String {

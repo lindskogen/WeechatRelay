@@ -8,30 +8,6 @@
 
 import Foundation
 
-class WeechatHdata: WeechatMessage, CustomStringConvertible {
-    let path: String
-    var elements: [[String: Any]] = []
-    
-    var description: String {
-        let elems = ", ".join(elements.map({$0.description}))
-        return "\(path) {\(elems)}"
-    }
-    
-    init(path: String) {
-        self.path = path
-    }
-    
-    func append(dict: Dictionary<String, Any>) {
-        elements.append(dict)
-    }
-    
-    func toDicts() -> [[String: Any]] {
-        return elements
-    }
-    
-}
-
-
 class WeechatMessage {
     
 }
@@ -40,13 +16,13 @@ class WeechatParser {
     
     let stream: NSInputStream
     var count: Int
-    let expectedId: String?
+    let tag: Int
     
     
-    init(data: NSData, expectedId id: String? = nil) {
+    init(data: NSData, tag: Int) {
         self.stream = NSInputStream(data: data)
         self.count = data.length
-        self.expectedId = id
+        self.tag = tag
         
     }
     
@@ -69,7 +45,7 @@ class WeechatParser {
         if actualId.hasPrefix("_") {
             print(actualId)
         }
-        // assert(actualId == expectedId, "actualId(\(actualId)) is not expectedId(\(expectedId))")
+        
         let type = readType()
         if  type != .Hdata {
             fatalError("type should be Hdata, was (\(type))")
@@ -184,10 +160,10 @@ class WeechatParser {
     private func readPointer() -> String {
         let string = readLong()
         
-        if string == "0" {
+        if string == "\0" {
             return "NULL"
         } else {
-            return string
+            return "0x\(string)"
         }
     }
     
@@ -224,7 +200,6 @@ class WeechatParser {
     
     private func typeStringToTuple(typeString: String) -> (name: String, type: WeechatDataType) {
         let split = typeString.componentsSeparatedByString(":")
-        debugPrint(split[1])
         return (split[0], WeechatDataType(rawValue: split[1])!)
     }
     
@@ -253,18 +228,107 @@ class WeechatParser {
             for key in keys {
                 dict[key.name] = readObject(withType: key.type)
             }
-            hData.append(dict)
+            hData.append(processHdataType(dict))
         }
         
         return hData
     }
+    
+    private func processHdataType(dict: Dictionary<String, Any>) -> WeechatHdataType {
+        switch tag {
+            case TAG_LINES:
+                return WeechatHdataLine(dict: dict)
+            case TAG_BUFFER:
+                return WeechatHdataBuffer(dict: dict)
+            break
+            case TAG_HOTLIST:
+            break
+            case TAG_NICKLIST:
+            break
+        default: break
+            
+        }
+        debugPrint(dict)
+        return WeechatHdataType()
+    }
 }
+
+public class WeechatHdataType: CustomStringConvertible {
+    public var description: String {
+        fatalError("fail, description must be overridden")
+    }
+    static func stringToNSString(string: Any) -> NSString {
+        return string as! NSString
+    }
+}
+
+public class WeechatHdataLine: WeechatHdataType {
+    let date: NSDate
+    let message: String
+    let buffer: String
+    
+    init(dict: Dictionary<String, Any>) {
+        date = NSDate(timeIntervalSince1970: WeechatHdataBuffer.stringToNSString(dict["date"]).doubleValue)
+        message = dict["message"] as! String
+        buffer = dict["buffer"] as! String
+    }
+    
+    override public var description: String {
+        return "\(date): \(message)"
+    }
+}
+
+public class WeechatHdataBuffer: WeechatHdataType {
+    let notify: Int
+    let number: Int
+    let fullName: String
+    let shortName: String
+    let title: String
+    let lines: String
+    let localVariables:[String: Any]
+    
+    let name = "name"
+    
+    init(dict: Dictionary<String, Any>) {
+        debugPrint(dict)
+        notify = dict["notify"] as! Int
+        number = dict["number"] as! Int
+        lines = dict["lines"] as! String
+        fullName = dict["full_name"] as! String
+        shortName = dict["short_name"] as! String
+        title = dict["title"] as! String
+        localVariables = dict["local_variables"] as! Dictionary<String, Any>
+    }
+    
+    override public var description: String {
+        return "\(number).\(localVariables[name]!) (\(notify)) \(title) "
+    }
+}
+
+
+class WeechatHdata: WeechatMessage, CustomStringConvertible {
+    let path: String
+    var elements: [WeechatHdataType] = []
+    
+    var description: String {
+        let elems = "\n".join(elements.map({$0.description}))
+        return "\(path){\n\(elems)\n}"
+    }
+    
+    init(path: String) {
+        self.path = path
+    }
+    
+    func append(element: WeechatHdataType) {
+        elements.append(element)
+    }
+}
+
 
 enum WeechatTypeSize: Int {
     case Char    = 1
     case Int     = 4
 }
-
 
 enum WeechatDataType: String {
     case String  = "str"

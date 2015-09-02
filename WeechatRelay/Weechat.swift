@@ -18,13 +18,6 @@ public class Weechat: GCDAsyncSocketDelegate {
     private let TIMEOUT = 3600.0
     private let NO_TIMEOUT = -1.0
     
-    private let TAG_INIT     = 0
-    private let TAG_LINES    = 1
-    private let TAG_BUFFER   = 2
-    private let TAG_HOTLIST  = 3
-    private let TAG_NICKLIST = 4
-    private let TAG_EVENT    = 9
-    
     private var incrementingTag = 0
     
     private let HEADER_LENGTH = 5
@@ -67,12 +60,12 @@ public class Weechat: GCDAsyncSocketDelegate {
     
     @objc public func socket(sock: GCDAsyncSocket!, didReadData data: NSData!, withTag tag: Int) {
         if tag > 100 {
-            let (length, _) = WeechatParser(data: data).parseHeader()
+            let (length, _) = WeechatParser(data: data, tag: tag - 100).parseHeader()
             queueReadMessage(length, tag: tag - 100)
             
         } else {
-            let msg = WeechatParser(data: data).parseBody()
-            print(msg!)
+            let msg = WeechatParser(data: data, tag: tag).parseBody()
+            debugPrint(msg!)
             queueReadHeader(TAG_EVENT)
         }
     }
@@ -83,7 +76,7 @@ public class Weechat: GCDAsyncSocketDelegate {
     }
     
     public func getBuffers() {
-        writeString("buffer:gui_buffers(*) local_variables,notify,number,full_name,short_name,title\nsync")
+        send_hdata("buffer:gui_buffers(*) local_variables,lines,notify,number,full_name,short_name,title")
         queueReadHeader(TAG_BUFFER)
     }
     
@@ -92,15 +85,17 @@ public class Weechat: GCDAsyncSocketDelegate {
     }
     
     public func getLines() {
-        send_hdata("buffer:gui_buffers/lines/first_line(*)/data", keys: "date,message")
+        send_hdata("buffer:gui_buffers(*)/lines/last_line(-10)/data")
         queueReadHeader(TAG_LINES)
     }
 }
 
-public struct WeechatHdataLine {
-    let date: NSDate
-    let message: String
-}
+let TAG_INIT     = 0
+let TAG_LINES    = 1
+let TAG_BUFFER   = 2
+let TAG_HOTLIST  = 3
+let TAG_NICKLIST = 4
+let TAG_EVENT    = 9
 
 public class WeechatStringFormatter {
     
