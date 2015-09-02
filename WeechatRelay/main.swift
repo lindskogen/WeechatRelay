@@ -6,24 +6,15 @@
 //  Copyright © 2015 Lindskogen. All rights reserved.
 //
 
-let client = TCPClient(addr: "127.0.0.1", port: 9000)
+import Cocoa
 
-let (success, _) = client.connect(timeout: 3600)
-
-if success {
-    let wc = Weechat(socket: client)
-    wc.send_init()
+do {
+    let wc = try Weechat(host: "127.0.0.1", port: 9000)
     
-    let weechatlines = wc.getLines()
-    
-    for line in weechatlines {
-        print("\(line.date): \(line.message)")
-    }
-    
+    wc.getLines()
     // wc.getBuffers()
-    // print(response)
     
-} else {
-    print("could not connect")
+    NSRunLoop.mainRunLoop().run()
+} catch {
+    fatalError("ERRROR")
 }
-

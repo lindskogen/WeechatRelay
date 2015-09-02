@@ -3,56 +3,81 @@
 //  WeechatRelay
 //
 //  Created by Johan Lindskogen on 2015-08-26.
-//  Copyright © 2015 Lindskogen. All rights reserved.
+//  Copyright © 2015 Johan Lindskogen. All rights reserved.
 //
 
 import Foundation
 
-class WeechatMessageParser {
+class WeechatHdata: WeechatMessage, CustomStringConvertible {
+    let path: String
+    var elements: [[String: Any]] = []
+    
+    var description: String {
+        let elems = ", ".join(elements.map({$0.description}))
+        return "\(path) {\(elems)}"
+    }
+    
+    init(path: String) {
+        self.path = path
+    }
+    
+    func append(dict: Dictionary<String, Any>) {
+        elements.append(dict)
+    }
+    
+    func toDicts() -> [[String: Any]] {
+        return elements
+    }
+    
+}
+
+
+class WeechatMessage {
+    
+}
+
+class WeechatParser {
     
     let stream: NSInputStream
     var count: Int
-    let id: String?
+    let expectedId: String?
     
     
-    init(data: NSData, id: String? = nil) {
+    init(data: NSData, expectedId id: String? = nil) {
         self.stream = NSInputStream(data: data)
         self.count = data.length
-        self.id = id
+        self.expectedId = id
         
     }
     
-    func parse() -> WeechatHdata? {
+    func parseHeader() -> (length: Int, compressed: Bool) {
         
         stream.open()
-        
-        let isCompressed = stream.readUInt8()
-        
-        count--
-        
-        assert(isCompressed == 0x00, "data should not be compressed")
-        
-        
-        let idLength = stream.readInt()
-        count -= 4
-        // assert(idLength == id?.characters.count)
-        if idLength != -1 {
-            count -= idLength
-            let idString = stream.readString(idLength)
-            // TODO: Match idString with correct command id
-        }
-        
-        if readType() != .Hdata {
-            fatalError("type should be Hdata")
-        }
-        
-        let hd = readHdata()
-        
-        print("stream ended")
-        
+        let length = readInt()
+        let compressed = readByte() == 0x01
         stream.close()
         
-        return hd
+        print(length, compressed)
+        
+        return (length - 5, compressed)
+    }
+    
+    func parseBody() -> WeechatMessage? {
+        
+        stream.open()
+        let actualId = readString()
+        if actualId.hasPrefix("_") {
+            print(actualId)
+        }
+        // assert(actualId == expectedId, "actualId(\(actualId)) is not expectedId(\(expectedId))")
+        let type = readType()
+        if  type != .Hdata {
+            fatalError("type should be Hdata, was (\(type))")
+        }
+        let hdata = readHdata()
+        stream.close()
+        
+        return hdata
     }
     
     private func readObject(withType type: WeechatDataType) -> Any {
@@ -110,7 +135,11 @@ class WeechatMessageParser {
         
         
         
-        return WeechatDataType(rawValue: type)!
+        if let weetype = WeechatDataType(rawValue: type) {
+            return weetype
+        } else {
+            fatalError("type \(type) is not supported")
+        }
     }
     
     private func readTypeAndObject() -> Any {
@@ -120,8 +149,13 @@ class WeechatMessageParser {
     }
     
     private func readInt() -> Int {
-        count -= 4
+        count -= WeechatTypeSize.Int.rawValue
         return stream.readInt()
+    }
+    
+    private func readByte() -> UInt8 {
+        count -= 1
+        return stream.readUInt8()
     }
     
     private func readString(withLength length: Int) -> String {
@@ -224,6 +258,11 @@ class WeechatMessageParser {
         
         return hData
     }
+}
+
+enum WeechatTypeSize: Int {
+    case Char    = 1
+    case Int     = 4
 }
 
 

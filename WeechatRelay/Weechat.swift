@@ -8,97 +8,98 @@
 
 import Foundation
 import Cocoa
+import CocoaAsyncSocket
 
-public class Weechat {
+
+public class Weechat: GCDAsyncSocketDelegate {
     
-    let connection:TCPClient
+    private lazy var socket: GCDAsyncSocket = GCDAsyncSocket(delegate: self, delegateQueue: dispatch_get_main_queue())
     
-    public init(socket : TCPClient) {
-        connection = socket
+    private let TIMEOUT = 3600.0
+    private let NO_TIMEOUT = -1.0
+    
+    private let TAG_INIT     = 0
+    private let TAG_LINES    = 1
+    private let TAG_BUFFER   = 2
+    private let TAG_HOTLIST  = 3
+    private let TAG_NICKLIST = 4
+    private let TAG_EVENT    = 9
+    
+    private var incrementingTag = 0
+    
+    private let HEADER_LENGTH = 5
+    
+    public init(host: String, port: Int, password: String = "") throws {
+        
+        try socket.connectToHost(host, onPort: UInt16(port))
+        
+        writeString("init password=\(password),compression=OFF")
     }
     
-    func send(command : String) {
-        connection.send(str: "\(command)\n")
+    func writeString(string: String) {
+        print(string)
+        let commandString = "\(string)\n"
+        socket.writeData(commandString.dataUsingEncoding(NSUTF8StringEncoding), withTimeout: NO_TIMEOUT, tag: incrementingTag++)
     }
     
-    func readHdata(id : String? = nil) -> WeechatHdata? {
-        let lengthByteLength = 4
-        if let lengthData = readToData(lengthByteLength) {
-            var length:UInt32 = 0
-            lengthData.getBytes(&length, length: lengthByteLength)
-            length = CFSwapInt32BigToHost(length)
+    func queueReadMessage(length: Int, tag: Int) {
+        print("queued:", length, tag)
+        let len = UInt(length)
+        
+        socket.readDataToLength(len, withTimeout: NO_TIMEOUT, tag: tag)
+    }
+    
+    func queueReadHeader(tag: Int) {
+        queueReadMessage(HEADER_LENGTH, tag: tag + 100)
+    }
+    
+    @objc public func socketDidDisconnect(sock: GCDAsyncSocket!, withError err: NSError!) {
+        print(err)
+    }
+    
+    @objc public func socket(sock: GCDAsyncSocket!, didConnectToHost host: String!, port: UInt16) {
+        print("socket connected! \(host):\(port)")
+    }
+    
+    @objc public func socket(sock: GCDAsyncSocket!, didReadPartialDataOfLength partialLength: UInt, tag: Int) {
+        print("partially read \(partialLength) bytes")
+    }
+    
+    @objc public func socket(sock: GCDAsyncSocket!, didReadData data: NSData!, withTag tag: Int) {
+        if tag > 100 {
+            let (length, _) = WeechatParser(data: data).parseHeader()
+            queueReadMessage(length, tag: tag - 100)
             
-            let messageByteLength = Int(length) - lengthByteLength
-            
-            if let messageData = readToData(messageByteLength) {
-                return WeechatMessageParser(data: messageData, id: id).parse()
-            }
-        }
-        return nil
-    }
-    
-    func readWeechatLines() -> [WeechatLine]? {
-        if let lines: [[String: Any]] = readHdata()?.toDicts() {
-            return lines.map({ (date: $0["date"] as! NSString, message: $0["message"] as! String) })
-                .map({
-                WeechatLine(
-                    date: NSDate(timeIntervalSince1970: $0.date.doubleValue),
-                    message: $0.message
-                )
-            })
         } else {
-            return nil
+            let msg = WeechatParser(data: data).parseBody()
+            print(msg!)
+            queueReadHeader(TAG_EVENT)
         }
-    }
-    
-    private func readToData(length : Int) -> NSData? {
-        if let readBytes = connection.read(length) {
-            return NSData(bytes: readBytes as [UInt8], length: length)
-        } else {
-            return nil
-        }
-    }
-    
-    public func send_init(password : String = "", compression : CompressionType = .OFF) {
-        send("init password=\(password),compression=\(compression)")
-    }
-    
-    func send_test() {
-        send("hotlist:gui_hotlist(*)")
-        readHdata()
     }
     
     public func getHotlist() {
         send_hdata("hotlist:gui_hotlist(*)")
-        let hdata = readHdata()
-        print(hdata)
+        queueReadHeader(TAG_HOTLIST)
     }
     
     public func getBuffers() {
-        send_hdata("buffer:gui_buffers(*) local_variables,notify,number,full_name,short_name,title")
-        let hdata = readHdata()
-        print(hdata)
+        writeString("buffer:gui_buffers(*) local_variables,notify,number,full_name,short_name,title\nsync")
+        queueReadHeader(TAG_BUFFER)
     }
     
-    public func send_hdata(path : String) {
-        send("hdata \(path)")
-        // read()
+    func send_hdata(path: String, keys: String = "") {
+        writeString("hdata \(path) \(keys)")
     }
     
-    public func getLines() -> [WeechatLine] {
-        send_hdata("buffer:gui_buffers(*)/lines/first_line(*)/data date,message")
-        return readWeechatLines()!
+    public func getLines() {
+        send_hdata("buffer:gui_buffers/lines/first_line(*)/data", keys: "date,message")
+        queueReadHeader(TAG_LINES)
     }
 }
 
-public struct WeechatLine {
+public struct WeechatHdataLine {
     let date: NSDate
     let message: String
-}
-
-public enum CompressionType : String {
-    case ZLIB = "zlib"
-    case OFF = "off"
 }
 
 public class WeechatStringFormatter {
@@ -115,29 +116,5 @@ public class WeechatStringFormatter {
         return ""
     }
 }
-
-class WeechatHdata : CustomStringConvertible {
-    let path: String
-    var elements: [[String: Any]] = []
-    
-    var description: String {
-        let elems = ", ".join(elements.map({$0.description}))
-        return "\(path) {\(elems)}"
-    }
-    
-    init(path: String) {
-        self.path = path
-    }
-    
-    func append(dict: Dictionary<String, Any>) {
-        elements.append(dict)
-    }
-    
-    func toDicts() -> [[String: Any]] {
-        return elements
-    }
-    
-}
-
 
 
