@@ -87,6 +87,7 @@ public class Weechat: GCDAsyncSocketDelegate {
     public func getLines() {
         send_hdata("buffer:gui_buffers(*)/lines/last_line(-10)/data")
         queueReadHeader(TAG_LINES)
+        // https://weechat.org/files/doc/stable/weechat_plugin_api.en.html#hdata
     }
 }
 
