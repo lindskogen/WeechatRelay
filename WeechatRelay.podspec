@@ -7,7 +7,7 @@
 #
 
 Pod::Spec.new do |s|
-  s.name         = "weechat-relay"
+  s.name         = "WeechatRelay"
   s.version      = "0.0.1"
   s.summary      = "Swift library to communicate with weechat clients"
   s.homepage     = "https://github.com/lindskogen/WeechatRelay"

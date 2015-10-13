@@ -37,22 +37,36 @@ extension NSInputStream {
         return Int(readInt32())
     }
     
-    func readUnicodeScalar() -> UnicodeScalar {
-        return UnicodeScalar(readUInt8())
-    }
-    
     func readChar() -> Bool {
         return readUInt8() == 1
     }
     
     func readString(length: Int) -> String {
-        var resultString = String()
+        var buffer = [UInt8]()
+        var utf8 = UTF8()
+        var resultString = ""
         
         assert(length > 0, "length is \(length)")
         
         for _ in 1...length {
-            resultString.append(readUnicodeScalar())
+            buffer.append(readUInt8())
         }
+        var generator = buffer.generate()
+        var finished = false
+        
+        repeat {
+            let result = utf8.decode(&generator)
+            
+            switch result {
+            case .Result(let char):
+                resultString.append(char)
+                break
+            default:
+                finished = true
+            }
+        } while !finished
+        
+        
         return resultString
     }
 

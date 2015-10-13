@@ -1,10 +1,28 @@
 PODS:
+  - BBSZLib (0.0.2)
   - CocoaAsyncSocket (7.4.2)
+  - ReactiveCocoa (4.0.2-alpha-1):
+    - ReactiveCocoa/UI (= 4.0.2-alpha-1)
+    - Result (~> 0.6-beta.1)
+  - ReactiveCocoa/Core (4.0.2-alpha-1):
+    - ReactiveCocoa/no-arc
+    - Result (~> 0.6-beta.1)
+  - ReactiveCocoa/no-arc (4.0.2-alpha-1):
+    - Result (~> 0.6-beta.1)
+  - ReactiveCocoa/UI (4.0.2-alpha-1):
+    - ReactiveCocoa/Core
+    - Result (~> 0.6-beta.1)
+  - Result (0.6.0-beta.4)
 
 DEPENDENCIES:
+  - BBSZLib
   - CocoaAsyncSocket
+  - ReactiveCocoa (= 4.0.2-alpha-1)
 
 SPEC CHECKSUMS:
+  BBSZLib: ba259b9e5a8250598a8c7ca88829663ce17d803d
   CocoaAsyncSocket: f5783bdedd232d91b89769bc4b5a1580aed518ad
+  ReactiveCocoa: 652cf90e5de65708e7e2111f77405756da21aabe
+  Result: f7927152cbaec0c043abb06ba0bc432678818418
 
 COCOAPODS: 0.39.0.beta.3

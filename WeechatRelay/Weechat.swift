@@ -7,43 +7,60 @@
 //
 
 import Foundation
-import Cocoa
 import CocoaAsyncSocket
-
+import BBSZLib
 
 public class Weechat: GCDAsyncSocketDelegate {
     
-    private lazy var socket: GCDAsyncSocket = GCDAsyncSocket(delegate: self, delegateQueue: dispatch_get_main_queue())
+    private lazy var socket: GCDAsyncSocket = GCDAsyncSocket(delegate: self, delegateQueue: dispatch_get_global_queue(QOS_CLASS_UTILITY, 0))
     
     private let TIMEOUT = 3600.0
     private let NO_TIMEOUT = -1.0
     
-    private var incrementingTag = 0
+    private var messageHandlers: [String: [WeechatMessageHandler]] = Dictionary()
+    private var queuedReads = 0
     
-    private let HEADER_LENGTH = 5
+    private var incrementingTag = 1
+    private let headerTag = 0
+    
+    private let HEADER_LENGTH = 4
     
     public init(host: String, port: Int, password: String = "") throws {
         
         try socket.connectToHost(host, onPort: UInt16(port))
+        print("connecting to \(host):\(UInt16(port))")
         
-        writeString("init password=\(password),compression=OFF")
+        writeString("init password=\(password),compression=zlib", id: .INIT)
+        queueReadHeader()
     }
     
-    func writeString(string: String) {
-        print(string)
-        let commandString = "\(string)\n"
-        socket.writeData(commandString.dataUsingEncoding(NSUTF8StringEncoding), withTimeout: NO_TIMEOUT, tag: incrementingTag++)
+    public func addHandler(event: String, handler: WeechatMessageHandler) {
+        
+        if var handlers = messageHandlers[event] {
+            handlers.append(handler)
+        } else {
+            messageHandlers[event] = [handler]
+        }
+    }
+    
+    func writeString(string: String, id: WeechatTagConstant) {
+        // print(string)
+        let commandString = "(\(id.rawValue))\(string)\n"
+        socket.writeData(commandString.dataUsingEncoding(NSUTF8StringEncoding), withTimeout: NO_TIMEOUT, tag: headerTag)
     }
     
     func queueReadMessage(length: Int, tag: Int) {
-        print("queued:", length, tag)
+    
+        queuedReads++
+        
+        print("queued: len(\(length))")
         let len = UInt(length)
         
         socket.readDataToLength(len, withTimeout: NO_TIMEOUT, tag: tag)
     }
     
-    func queueReadHeader(tag: Int) {
-        queueReadMessage(HEADER_LENGTH, tag: tag + 100)
+    func queueReadHeader() {
+        queueReadMessage(HEADER_LENGTH, tag: headerTag)
     }
     
     @objc public func socketDidDisconnect(sock: GCDAsyncSocket!, withError err: NSError!) {
@@ -59,58 +76,104 @@ public class Weechat: GCDAsyncSocketDelegate {
     }
     
     @objc public func socket(sock: GCDAsyncSocket!, didReadData data: NSData!, withTag tag: Int) {
-        if tag > 100 {
-            let (length, _) = WeechatParser(data: data, tag: tag - 100).parseHeader()
-            queueReadMessage(length, tag: tag - 100)
+        
+        queuedReads--
+        
+        if tag == headerTag {
+            let weechatData = WeechatData(data: data)
             
+            let length = readHeader(weechatData)
+            
+            queueReadMessage(length - HEADER_LENGTH, tag: 1)
         } else {
-            let msg = WeechatParser(data: data, tag: tag).parseBody()
-            debugPrint(msg!)
-            queueReadHeader(TAG_EVENT)
+            readBody(data, tag: tag)
+        }
+        
+        print("queuedReads", queuedReads)
+        
+        if queuedReads == 0 {
+            queueReadHeader()
         }
     }
     
+    private func readHeader(data: WeechatData) -> Int {
+        let lengthOfMessage = data.readInt()
+        
+        return lengthOfMessage
+    }
+    
+    private func decompressData(data: NSData) -> NSData {
+        do {
+            return try data.bbs_dataByInflating()
+        } catch {
+            return data
+        }
+    }
+    
+    private func dataIsCompressed(data: WeechatData) -> Bool {
+        return data.readChar()
+    }
+    
+    private func readBody(data: NSData, tag: Int) {
+        
+        let isCompressedData = WeechatData(data: data.subdataWithRange(NSMakeRange(0, 1)))
+        var uncompressedData = data.subdataWithRange(NSMakeRange(1, data.length - 1))
+        
+        if dataIsCompressed(isCompressedData) {
+            uncompressedData = decompressData(uncompressedData)
+        }
+        
+        let weechatData = WeechatData(data: uncompressedData)
+        
+        
+        guard let id = weechatData.readString() else { fatalError("id not defined") }
+        
+        print(id)
+        
+        if let handlers = messageHandlers[id] where handlers.count > 0 {
+            handlers.forEach({ (handler) in
+                handler.handleMessage(weechatData, id: id)
+            })
+        } else {
+            fatalError("no handler for (\(id))")
+        }
+    }
+    
+    private func printData(data: NSData) {
+        debugPrint(String(data: data, encoding: NSUTF8StringEncoding))
+    }
+    
     public func getHotlist() {
-        send_hdata("hotlist:gui_hotlist(*)")
-        queueReadHeader(TAG_HOTLIST)
+        send_hdata("hotlist:gui_hotlist(*)", tag: .HOTLIST)
     }
     
     public func getBuffers() {
-        send_hdata("buffer:gui_buffers(*) local_variables,lines,notify,number,full_name,short_name,title")
-        queueReadHeader(TAG_BUFFER)
+        send_hdata("buffer:gui_buffers(*) local_variables,lines,notify,number,full_name,short_name,title", tag: .BUFFER)
     }
     
-    func send_hdata(path: String, keys: String = "") {
-        writeString("hdata \(path) \(keys)")
+    public func send_input(buffer: String, data: String) {
+        writeString("input \(buffer) \(data)", id: .INPUT)
     }
     
-    public func getLines() {
-        send_hdata("buffer:gui_buffers(*)/lines/last_line(-10)/data")
-        queueReadHeader(TAG_LINES)
-        // https://weechat.org/files/doc/stable/weechat_plugin_api.en.html#hdata
+    func send_hdata(path: String, tag: WeechatTagConstant) {
+        writeString("hdata \(path)", id: tag)
     }
-}
-
-let TAG_INIT     = 0
-let TAG_LINES    = 1
-let TAG_BUFFER   = 2
-let TAG_HOTLIST  = 3
-let TAG_NICKLIST = 4
-let TAG_EVENT    = 9
-
-public class WeechatStringFormatter {
     
-    static let SET_COLOR = String(0x19)
-    static let SET_ATTR =  String(0x1A)
-    static let REM_ATTR =  String(0x1B)
-    static let RESET =     String(0x1C)
-    
-    static let CONTROL_CHARS = SET_COLOR + SET_ATTR + REM_ATTR + RESET
-    
-    static public func format(unformatted: String) -> String {
-        // var formatted = ""
-        return ""
+    public func getLines(num: Int) {
+        send_hdata("buffer:gui_buffers(*)/lines/last_line(-\(num))/data", tag: .LINES)
     }
 }
 
+// https://weechat.org/files/doc/stable/weechat_plugin_api.en.html#hdata
+
+public enum WeechatTagConstant: String {
+    case INPUT    = "input"
+    case HEADER   = "header"
+    case INIT     = "init"
+    case LINES    = "lines"
+    case BUFFER   = "buffer"
+    case HOTLIST  = "hotlist"
+    case NICKLIST = "nicklist"
+    case EVENT    = "event"
+}
 
